@@ -1,0 +1,13 @@
+{
+  "name": "onshape-mesh-export",
+  "version": "0.1.0",
+  "description": "Userscript that downloads Onshape's tessellated geometry for each part as STL, OBJ or raw JSON",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node --test test/*.test.js",
+    "check": "npm run build && npm test"
+  },
+  "engines": { "node": ">=20" }
+}
