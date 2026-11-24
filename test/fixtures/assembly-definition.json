@@ -1,0 +1,791 @@
+{
+ "rootAssembly": {
+  "occurrences": [
+   {
+    "mateStatuses": null,
+    "transform": [
+     1.0,
+     0.0,
+     0.0,
+     -0.05935864982028965,
+     0.0,
+     1.0,
+     0.0,
+     -0.15,
+     0.0,
+     0.0,
+     1.0,
+     0.005,
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ],
+    "fixed": false,
+    "hidden": false,
+    "path": [
+     "M6XOoPDSand5jG4La"
+    ]
+   },
+   {
+    "mateStatuses": null,
+    "transform": [
+     1.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     1.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     1.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ],
+    "fixed": false,
+    "hidden": false,
+    "path": [
+     "Mbddd/pSUAQLo4eq7"
+    ]
+   },
+   {
+    "mateStatuses": null,
+    "transform": [
+     0.0,
+     0.0,
+     -1.0,
+     -0.02,
+     0.0,
+     1.0,
+     0.0,
+     -0.154,
+     1.0,
+     0.0,
+     0.0,
+     0.010000000000000004,
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ],
+    "fixed": false,
+    "hidden": false,
+    "path": [
+     "MdJESffR7uGM3w4IK"
+    ]
+   },
+   {
+    "mateStatuses": null,
+    "transform": [
+     1.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     1.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     1.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ],
+    "fixed": true,
+    "hidden": false,
+    "path": [
+     "MsVoSJ/sSUzwKAG2Z"
+    ]
+   },
+   {
+    "mateStatuses": null,
+    "transform": [
+     1.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     1.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     1.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ],
+    "fixed": false,
+    "hidden": false,
+    "path": [
+     "MtF+8HvqHGIdaWLuL"
+    ]
+   },
+   {
+    "mateStatuses": null,
+    "transform": [
+     1.0,
+     0.0,
+     0.0,
+     -0.034781487744218464,
+     0.0,
+     1.0,
+     0.0,
+     -0.007555187351325349,
+     0.0,
+     0.0,
+     1.0,
+     0.01878886838481892,
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ],
+    "fixed": false,
+    "hidden": false,
+    "path": [
+     "MxSHBJ9sGJhjsGHRk"
+    ]
+   },
+   {
+    "mateStatuses": null,
+    "transform": [
+     1.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     1.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     1.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ],
+    "fixed": false,
+    "hidden": false,
+    "path": [
+     "Mbddd/pSUAQLo4eq7",
+     "MDqO4v2sExh5ANTUe"
+    ]
+   },
+   {
+    "mateStatuses": null,
+    "transform": [
+     0.14220521702357605,
+     -0.989837196841583,
+     3.544745750366419e-18,
+     0.00866921744646332,
+     0.989837196841583,
+     0.14220521702357605,
+     -3.925531596246076e-18,
+     -0.14847557952623738,
+     3.381555852617259e-18,
+     4.0669522696361105e-18,
+     1.0,
+     -0.034999999999999996,
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ],
+    "fixed": false,
+    "hidden": false,
+    "path": [
+     "Mbddd/pSUAQLo4eq7",
+     "MbyBmnQJoMAbnnYor"
+    ]
+   }
+  ],
+  "parametricInstances": [],
+  "isRigid": false,
+  "patterns": [],
+  "metadataHref": "https://cad.onshape.com/api/metadata/d/b7ca293f81b76257c6d8d288/w/eaa9f037096bcdb7a7cc25ee/e/24ee907cb24ae0c37702ac78?configuration=default",
+  "instances": [
+   {
+    "type": "Part",
+    "suppressed": false,
+    "partId": "JHD",
+    "isStandardContent": false,
+    "name": "Base <1>",
+    "id": "MsVoSJ/sSUzwKAG2Z",
+    "configuration": "default",
+    "fullConfiguration": "default",
+    "documentId": "b7ca293f81b76257c6d8d288",
+    "elementId": "6278772797e780b2a0fe76f3",
+    "documentMicroversion": "eb79c7fb630435a62ebf0500"
+   },
+   {
+    "type": "Part",
+    "suppressed": false,
+    "partId": "JKD",
+    "isStandardContent": false,
+    "name": "Shaft <1>",
+    "id": "MtF+8HvqHGIdaWLuL",
+    "configuration": "default",
+    "fullConfiguration": "default",
+    "documentId": "b7ca293f81b76257c6d8d288",
+    "elementId": "6278772797e780b2a0fe76f3",
+    "documentMicroversion": "eb79c7fb630435a62ebf0500"
+   },
+   {
+    "type": "Part",
+    "suppressed": false,
+    "partId": "JND",
+    "isStandardContent": false,
+    "name": "Block <1>",
+    "id": "MxSHBJ9sGJhjsGHRk",
+    "configuration": "default",
+    "fullConfiguration": "default",
+    "documentId": "b7ca293f81b76257c6d8d288",
+    "elementId": "6278772797e780b2a0fe76f3",
+    "documentMicroversion": "eb79c7fb630435a62ebf0500"
+   },
+   {
+    "type": "Part",
+    "suppressed": false,
+    "partId": "JQD",
+    "isStandardContent": false,
+    "name": "Gear A <1>",
+    "id": "MdJESffR7uGM3w4IK",
+    "configuration": "default",
+    "fullConfiguration": "default",
+    "documentId": "b7ca293f81b76257c6d8d288",
+    "elementId": "6278772797e780b2a0fe76f3",
+    "documentMicroversion": "eb79c7fb630435a62ebf0500"
+   },
+   {
+    "type": "Part",
+    "suppressed": false,
+    "partId": "JTD",
+    "isStandardContent": false,
+    "name": "Gear B <1>",
+    "id": "M6XOoPDSand5jG4La",
+    "configuration": "default",
+    "fullConfiguration": "default",
+    "documentId": "b7ca293f81b76257c6d8d288",
+    "elementId": "6278772797e780b2a0fe76f3",
+    "documentMicroversion": "eb79c7fb630435a62ebf0500"
+   },
+   {
+    "type": "Assembly",
+    "suppressed": false,
+    "name": "Assembly 2 <1>",
+    "id": "Mbddd/pSUAQLo4eq7",
+    "configuration": "default",
+    "fullConfiguration": "default",
+    "documentId": "b7ca293f81b76257c6d8d288",
+    "elementId": "b5007bc4d777b2023a7ad76b",
+    "documentMicroversion": "eb79c7fb630435a62ebf0500"
+   }
+  ],
+  "features": [
+   {
+    "featureType": "mate",
+    "suppressed": false,
+    "featureData": {
+     "matedEntities": [
+      {
+       "matedOccurrence": [
+        "Mbddd/pSUAQLo4eq7",
+        "MbyBmnQJoMAbnnYor"
+       ],
+       "mateConnectorCS": {
+        "origin": [
+         0.15,
+         3.061616997868383e-19,
+         0.04
+        ],
+        "zAxis": [
+         0.0,
+         0.0,
+         1.0
+        ],
+        "yAxis": [
+         0.0,
+         1.0,
+         0.0
+        ],
+        "xAxis": [
+         1.0,
+         0.0,
+         0.0
+        ]
+       },
+       "matedCS": {
+        "origin": [
+         0.15,
+         3.061616997868383e-19,
+         0.04
+        ],
+        "zAxis": [
+         0.0,
+         0.0,
+         1.0
+        ],
+        "yAxis": [
+         0.0,
+         1.0,
+         0.0
+        ],
+        "xAxis": [
+         1.0,
+         0.0,
+         0.0
+        ]
+       }
+      },
+      {
+       "matedOccurrence": [
+        "MsVoSJ/sSUzwKAG2Z"
+       ],
+       "mateConnectorCS": {
+        "origin": [
+         0.03,
+         3.061616997868383e-19,
+         0.0050000000000000044
+        ],
+        "zAxis": [
+         0.0,
+         0.0,
+         -1.0
+        ],
+        "yAxis": [
+         0.0,
+         -1.0,
+         0.0
+        ],
+        "xAxis": [
+         1.0,
+         0.0,
+         0.0
+        ]
+       },
+       "matedCS": {
+        "origin": [
+         0.03,
+         3.061616997868383e-19,
+         0.0050000000000000044
+        ],
+        "zAxis": [
+         -0.0,
+         -0.0,
+         1.0
+        ],
+        "yAxis": [
+         -0.0,
+         1.0,
+         0.0
+        ],
+        "xAxis": [
+         1.0,
+         0.0,
+         0.0
+        ]
+       }
+      }
+     ],
+     "mateLimits": {
+      "limitAxialZMax": 1.5707963267948966,
+      "limitAxialZMin": -1.5707963267948966
+     },
+     "mateType": "REVOLUTE",
+     "name": "Revolute 1"
+    },
+    "id": "MdNJ2XIXzRFzc5bw3"
+   },
+   {
+    "featureType": "mate",
+    "suppressed": false,
+    "featureData": {
+     "matedEntities": [
+      {
+       "matedOccurrence": [
+        "MdJESffR7uGM3w4IK"
+       ],
+       "mateConnectorCS": {
+        "origin": [
+         -2.696189610344371e-18,
+         0.15,
+         0.005
+        ],
+        "zAxis": [
+         0.0,
+         0.0,
+         1.0
+        ],
+        "yAxis": [
+         0.0,
+         1.0,
+         0.0
+        ],
+        "xAxis": [
+         1.0,
+         0.0,
+         0.0
+        ]
+       },
+       "matedCS": {
+        "origin": [
+         -2.696189610344371e-18,
+         0.15,
+         0.005
+        ],
+        "zAxis": [
+         0.0,
+         0.0,
+         1.0
+        ],
+        "yAxis": [
+         0.0,
+         1.0,
+         0.0
+        ],
+        "xAxis": [
+         1.0,
+         0.0,
+         0.0
+        ]
+       }
+      },
+      {
+       "matedOccurrence": [
+        "MsVoSJ/sSUzwKAG2Z"
+       ],
+       "mateConnectorCS": {
+        "origin": [
+         -0.025,
+         -0.004,
+         0.01
+        ],
+        "zAxis": [
+         -1.0,
+         0.0,
+         0.0
+        ],
+        "yAxis": [
+         0.0,
+         0.0,
+         -1.0
+        ],
+        "xAxis": [
+         0.0,
+         1.0,
+         0.0
+        ]
+       },
+       "matedCS": {
+        "origin": [
+         -0.025,
+         -0.004,
+         0.01
+        ],
+        "zAxis": [
+         -1.0,
+         0.0,
+         0.0
+        ],
+        "yAxis": [
+         0.0,
+         1.0,
+         0.0
+        ],
+        "xAxis": [
+         -0.0,
+         -0.0,
+         1.0
+        ]
+       }
+      }
+     ],
+     "mateLimits": {},
+     "mateType": "REVOLUTE",
+     "name": "Revolute 2"
+    },
+    "id": "Mcwq4hxTKwJ3MKJ1P"
+   },
+   {
+    "featureType": "mate",
+    "suppressed": false,
+    "featureData": {
+     "matedEntities": [
+      {
+       "matedOccurrence": [
+        "M6XOoPDSand5jG4La"
+       ],
+       "mateConnectorCS": {
+        "origin": [
+         0.06,
+         0.15,
+         0.005
+        ],
+        "zAxis": [
+         0.0,
+         0.0,
+         1.0
+        ],
+        "yAxis": [
+         0.0,
+         1.0,
+         0.0
+        ],
+        "xAxis": [
+         1.0,
+         0.0,
+         0.0
+        ]
+       },
+       "matedCS": {
+        "origin": [
+         0.06,
+         0.15,
+         0.005
+        ],
+        "zAxis": [
+         0.0,
+         0.0,
+         1.0
+        ],
+        "yAxis": [
+         0.0,
+         1.0,
+         0.0
+        ],
+        "xAxis": [
+         1.0,
+         0.0,
+         0.0
+        ]
+       }
+      },
+      {
+       "matedOccurrence": [
+        "MsVoSJ/sSUzwKAG2Z"
+       ],
+       "mateConnectorCS": {
+        "origin": [
+         0.0006413501797103513,
+         -4.232342196232874e-21,
+         0.01
+        ],
+        "zAxis": [
+         0.0,
+         0.0,
+         1.0
+        ],
+        "yAxis": [
+         0.0,
+         1.0,
+         0.0
+        ],
+        "xAxis": [
+         1.0,
+         0.0,
+         0.0
+        ]
+       },
+       "matedCS": {
+        "origin": [
+         0.0006413501797103513,
+         -4.232342196232874e-21,
+         0.01
+        ],
+        "zAxis": [
+         0.0,
+         0.0,
+         1.0
+        ],
+        "yAxis": [
+         0.0,
+         1.0,
+         0.0
+        ],
+        "xAxis": [
+         1.0,
+         0.0,
+         0.0
+        ]
+       }
+      }
+     ],
+     "mateLimits": {},
+     "mateType": "REVOLUTE",
+     "name": "Revolute 3"
+    },
+    "id": "M9oCeW/lIhTsYyJKA"
+   },
+   {
+    "featureType": "mateRelation",
+    "suppressed": false,
+    "featureData": {
+     "reverseDirection": false,
+     "relationRatio": 2.0,
+     "mates": [
+      {
+       "featureId": "Mcwq4hxTKwJ3MKJ1P",
+       "occurrence": []
+      },
+      {
+       "featureId": "M9oCeW/lIhTsYyJKA",
+       "occurrence": []
+      }
+     ],
+     "relationType": "GEAR",
+     "name": "Gear 1"
+    },
+    "id": "Ma0FMxG9v1bWnYX1F"
+   },
+   {
+    "featureType": "mateGroup",
+    "suppressed": false,
+    "featureData": {
+     "occurrences": [
+      {
+       "occurrence": [
+        "MxSHBJ9sGJhjsGHRk"
+       ]
+      },
+      {
+       "occurrence": [
+        "MtF+8HvqHGIdaWLuL"
+       ]
+      }
+     ],
+     "name": "Group 1"
+    },
+    "id": "MWLzjy04qbOTZJ98f"
+   }
+  ],
+  "configuration": "default",
+  "fullConfiguration": "List_wcsOJ5C9fbt37D=Default",
+  "documentId": "b7ca293f81b76257c6d8d288",
+  "elementId": "24ee907cb24ae0c37702ac78",
+  "documentMicroversion": "eb79c7fb630435a62ebf0500"
+ },
+ "subAssemblies": [
+  {
+   "parametricInstances": [],
+   "isRigid": false,
+   "patterns": [],
+   "metadataHref": "https://cad.onshape.com/api/metadata/d/b7ca293f81b76257c6d8d288/w/eaa9f037096bcdb7a7cc25ee/e/b5007bc4d777b2023a7ad76b?configuration=default",
+   "instances": [
+    {
+     "type": "Part",
+     "suppressed": false,
+     "partId": "JWD",
+     "isStandardContent": false,
+     "name": "Rack <1>",
+     "id": "MDqO4v2sExh5ANTUe",
+     "configuration": "default",
+     "fullConfiguration": "default",
+     "documentId": "b7ca293f81b76257c6d8d288",
+     "elementId": "6278772797e780b2a0fe76f3",
+     "documentMicroversion": "eb79c7fb630435a62ebf0500"
+    },
+    {
+     "type": "Part",
+     "suppressed": false,
+     "partId": "JKD",
+     "isStandardContent": false,
+     "name": "Shaft <1>",
+     "id": "MbyBmnQJoMAbnnYor",
+     "configuration": "default",
+     "fullConfiguration": "default",
+     "documentId": "b7ca293f81b76257c6d8d288",
+     "elementId": "6278772797e780b2a0fe76f3",
+     "documentMicroversion": "eb79c7fb630435a62ebf0500"
+    }
+   ],
+   "features": [],
+   "configuration": "default",
+   "fullConfiguration": "default",
+   "documentId": "b7ca293f81b76257c6d8d288",
+   "elementId": "b5007bc4d777b2023a7ad76b",
+   "documentMicroversion": "eb79c7fb630435a62ebf0500"
+  }
+ ],
+ "parts": [
+  {
+   "metadataHref": "https://cad.onshape.com/api/metadata/d/b7ca293f81b76257c6d8d288/w/eaa9f037096bcdb7a7cc25ee/e/6278772797e780b2a0fe76f3/pi/de2fefc185c94d03bcb3cb1f?configuration=default",
+   "partId": "JND",
+   "isStandardContent": false,
+   "bodyType": "solid",
+   "configuration": "default",
+   "fullConfiguration": "default",
+   "documentId": "b7ca293f81b76257c6d8d288",
+   "elementId": "6278772797e780b2a0fe76f3",
+   "documentMicroversion": "eb79c7fb630435a62ebf0500"
+  },
+  {
+   "metadataHref": "https://cad.onshape.com/api/metadata/d/b7ca293f81b76257c6d8d288/w/eaa9f037096bcdb7a7cc25ee/e/6278772797e780b2a0fe76f3/pi/462c024fa26d54336471d8a1?configuration=default",
+   "partId": "JKD",
+   "isStandardContent": false,
+   "bodyType": "solid",
+   "configuration": "default",
+   "fullConfiguration": "default",
+   "documentId": "b7ca293f81b76257c6d8d288",
+   "elementId": "6278772797e780b2a0fe76f3",
+   "documentMicroversion": "eb79c7fb630435a62ebf0500"
+  },
+  {
+   "metadataHref": "https://cad.onshape.com/api/metadata/d/b7ca293f81b76257c6d8d288/w/eaa9f037096bcdb7a7cc25ee/e/6278772797e780b2a0fe76f3/pi/96a4189dd24d79cd4db010a3?configuration=default",
+   "partId": "JWD",
+   "isStandardContent": false,
+   "bodyType": "solid",
+   "configuration": "default",
+   "fullConfiguration": "default",
+   "documentId": "b7ca293f81b76257c6d8d288",
+   "elementId": "6278772797e780b2a0fe76f3",
+   "documentMicroversion": "eb79c7fb630435a62ebf0500"
+  },
+  {
+   "metadataHref": "https://cad.onshape.com/api/metadata/d/b7ca293f81b76257c6d8d288/w/eaa9f037096bcdb7a7cc25ee/e/6278772797e780b2a0fe76f3/pi/2da7379cea6e665d23e28183?configuration=default",
+   "partId": "JHD",
+   "isStandardContent": false,
+   "bodyType": "solid",
+   "configuration": "default",
+   "fullConfiguration": "default",
+   "documentId": "b7ca293f81b76257c6d8d288",
+   "elementId": "6278772797e780b2a0fe76f3",
+   "documentMicroversion": "eb79c7fb630435a62ebf0500"
+  },
+  {
+   "metadataHref": "https://cad.onshape.com/api/metadata/d/b7ca293f81b76257c6d8d288/w/eaa9f037096bcdb7a7cc25ee/e/6278772797e780b2a0fe76f3/pi/28a90f8c8e761b295e7888af?configuration=default",
+   "partId": "JTD",
+   "isStandardContent": false,
+   "bodyType": "solid",
+   "configuration": "default",
+   "fullConfiguration": "default",
+   "documentId": "b7ca293f81b76257c6d8d288",
+   "elementId": "6278772797e780b2a0fe76f3",
+   "documentMicroversion": "eb79c7fb630435a62ebf0500"
+  },
+  {
+   "metadataHref": "https://cad.onshape.com/api/metadata/d/b7ca293f81b76257c6d8d288/w/eaa9f037096bcdb7a7cc25ee/e/6278772797e780b2a0fe76f3/pi/ac6866767592a9ce8b5b3275?configuration=default",
+   "partId": "JQD",
+   "isStandardContent": false,
+   "bodyType": "solid",
+   "configuration": "default",
+   "fullConfiguration": "default",
+   "documentId": "b7ca293f81b76257c6d8d288",
+   "elementId": "6278772797e780b2a0fe76f3",
+   "documentMicroversion": "eb79c7fb630435a62ebf0500"
+  }
+ ],
+ "partStudioFeatures": []
+}

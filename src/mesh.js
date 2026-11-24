@@ -115,3 +115,85 @@ export function parseOnshapeUrl(href) {
   if (!m) return null
   return { origin: u.origin, did: m[1], wvm: m[2], wvmid: m[3], eid: m[4], configuration: u.searchParams.get('configuration') || '' }
 }
+
+// ---- Assemblies ----
+
+/**
+ * Lists every part occurrence in an assembly definition (GET /assemblies/...), at every depth.
+ * Each one carries its world transform (the root's `occurrences` already compose nested ones), the names along its
+ * path, and the reference needed to fetch the part's tessellation. Suppressed instances, and anything under a
+ * suppressed subassembly, are left out.
+ */
+export function assemblyPartOccurrences(def) {
+  const root = def.rootAssembly
+  const subs = def.subAssemblies || []
+  const findSub = (inst) =>
+    subs.find((s) => s.documentId === inst.documentId && s.elementId === inst.elementId &&
+      (s.documentMicroversion || '') === (inst.documentMicroversion || '') &&
+      (s.fullConfiguration || s.configuration) === (inst.fullConfiguration || inst.configuration)) ||
+    subs.find((s) => s.documentId === inst.documentId && s.elementId === inst.elementId)
+  const out = []
+  for (const occ of root.occurrences || []) {
+    let level = root.instances || []
+    const names = []
+    let inst = null
+    let ok = true
+    for (let i = 0; i < occ.path.length; i++) {
+      inst = level.find((x) => x.id === occ.path[i])
+      if (!inst || inst.suppressed) { ok = false; break }
+      names.push(inst.name)
+      if (i < occ.path.length - 1) {
+        const sub = inst.type === 'Assembly' ? findSub(inst) : null
+        if (!sub) { ok = false; break }
+        level = sub.instances || []
+      }
+    }
+    if (!ok || !inst || inst.type !== 'Part') continue
+    out.push({
+      key: occ.path.join('/'),
+      path: occ.path,
+      names,
+      transform: occ.transform,
+      hidden: !!occ.hidden,
+      part: {
+        documentId: inst.documentId,
+        elementId: inst.elementId,
+        partId: inst.partId,
+        configuration: inst.fullConfiguration || inst.configuration || 'default',
+        documentMicroversion: inst.documentMicroversion,
+        documentVersion: inst.documentVersion,
+        isStandardContent: !!inst.isStandardContent,
+      },
+    })
+  }
+  return out
+}
+
+/** Identifies one part definition, so instances of the same part share a single tessellation request. */
+export function partSourceKey(part) {
+  return [part.documentId, part.documentVersion || part.documentMicroversion || '', part.elementId, part.partId, part.configuration || 'default'].join('|')
+}
+
+/**
+ * Applies a 4x4 row-major transform (Onshape's occurrence `transform`, metres) to bodies.
+ * A mirroring transform would turn the triangles inside out, so their winding is flipped back.
+ */
+export function transformBodies(bodies, m, namePrefix = '') {
+  const det = m[0] * (m[5] * m[10] - m[6] * m[9]) - m[1] * (m[4] * m[10] - m[6] * m[8]) + m[2] * (m[4] * m[9] - m[5] * m[8])
+  return bodies.map((b) => {
+    const p = b.positions
+    const q = new Float64Array(p.length)
+    for (let i = 0; i < p.length; i += 3) {
+      const x = p[i], y = p[i + 1], z = p[i + 2]
+      q[i] = m[0] * x + m[1] * y + m[2] * z + m[3]
+      q[i + 1] = m[4] * x + m[5] * y + m[6] * z + m[7]
+      q[i + 2] = m[8] * x + m[9] * y + m[10] * z + m[11]
+    }
+    if (det < 0) {
+      for (let i = 0; i < q.length; i += 9) {
+        for (let k = 3; k < 6; k++) { const t = q[i + k]; q[i + k] = q[i + k + 3]; q[i + k + 3] = t }
+      }
+    }
+    return { ...b, name: namePrefix || b.name, positions: q }
+  })
+}

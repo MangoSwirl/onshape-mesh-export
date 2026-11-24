@@ -90,3 +90,36 @@ test('safe file names', () => {
   assert.equal(safeFileName('Arm: plate / v2?'), 'Arm_ plate _ v2_')
   assert.equal(safeFileName('   '), 'part')
 })
+
+// Real assembly definition: five parts at the root and a subassembly holding two more (one of them a second Shaft).
+import { assemblyPartOccurrences, partSourceKey, transformBodies } from '../src/mesh.js'
+const asm = JSON.parse(readFileSync(new URL('fixtures/assembly-definition.json', import.meta.url), 'utf8'))
+
+test('assembly: every part occurrence at every depth, with names along the path', () => {
+  const occ = assemblyPartOccurrences(asm)
+  assert.equal(occ.length, 7)
+  const nested = occ.filter((o) => o.path.length === 2).map((o) => o.names.join(' › ')).sort()
+  assert.deepEqual(nested, ['Assembly 2 <1> › Rack <1>', 'Assembly 2 <1> › Shaft <1>'])
+  assert.ok(occ.every((o) => o.part.partId && o.transform.length === 16))
+})
+
+test('assembly: instances of one part share a source key', () => {
+  const occ = assemblyPartOccurrences(asm)
+  assert.equal(new Set(occ.map((o) => partSourceKey(o.part))).size, 6)
+})
+
+test('assembly: suppressed instances and their children drop out', () => {
+  const copy = structuredClone(asm)
+  copy.rootAssembly.instances.find((i) => i.type === 'Assembly').suppressed = true
+  assert.equal(assemblyPartOccurrences(copy).length, 5)
+})
+
+test('transform: row-major rotation and translation, winding kept under mirroring', () => {
+  const b = { name: 't', positions: new Float64Array([0, 0, 0, 1, 0, 0, 0, 1, 0]) }
+  const rotZ = [0, -1, 0, 10, 1, 0, 0, 20, 0, 0, 1, 30, 0, 0, 0, 1]
+  assert.deepEqual([...transformBodies([b], rotZ)[0].positions], [10, 20, 30, 10, 21, 30, 9, 20, 30])
+  const mirrorX = [-1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
+  const m = transformBodies([b], mirrorX)[0].positions
+  const nz = (m[3] - m[0]) * (m[7] - m[1]) - (m[4] - m[1]) * (m[6] - m[0])
+  assert.ok(nz > 0, 'normal still +z after mirroring')
+})

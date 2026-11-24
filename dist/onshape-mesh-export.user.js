@@ -131,8 +131,90 @@ function parseOnshapeUrl(href) {
   return { origin: u.origin, did: m[1], wvm: m[2], wvmid: m[3], eid: m[4], configuration: u.searchParams.get('configuration') || '' }
 }
 
-// Browser side: a small panel in an Onshape Part Studio tab that lists the parts and downloads each one's tessellation.
-// It calls Onshape's own REST API from the page, so it uses the signed-in session: no API keys, no quota.
+// ---- Assemblies ----
+
+/**
+ * Lists every part occurrence in an assembly definition (GET /assemblies/...), at every depth.
+ * Each one carries its world transform (the root's `occurrences` already compose nested ones), the names along its
+ * path, and the reference needed to fetch the part's tessellation. Suppressed instances, and anything under a
+ * suppressed subassembly, are left out.
+ */
+function assemblyPartOccurrences(def) {
+  const root = def.rootAssembly
+  const subs = def.subAssemblies || []
+  const findSub = (inst) =>
+    subs.find((s) => s.documentId === inst.documentId && s.elementId === inst.elementId &&
+      (s.documentMicroversion || '') === (inst.documentMicroversion || '') &&
+      (s.fullConfiguration || s.configuration) === (inst.fullConfiguration || inst.configuration)) ||
+    subs.find((s) => s.documentId === inst.documentId && s.elementId === inst.elementId)
+  const out = []
+  for (const occ of root.occurrences || []) {
+    let level = root.instances || []
+    const names = []
+    let inst = null
+    let ok = true
+    for (let i = 0; i < occ.path.length; i++) {
+      inst = level.find((x) => x.id === occ.path[i])
+      if (!inst || inst.suppressed) { ok = false; break }
+      names.push(inst.name)
+      if (i < occ.path.length - 1) {
+        const sub = inst.type === 'Assembly' ? findSub(inst) : null
+        if (!sub) { ok = false; break }
+        level = sub.instances || []
+      }
+    }
+    if (!ok || !inst || inst.type !== 'Part') continue
+    out.push({
+      key: occ.path.join('/'),
+      path: occ.path,
+      names,
+      transform: occ.transform,
+      hidden: !!occ.hidden,
+      part: {
+        documentId: inst.documentId,
+        elementId: inst.elementId,
+        partId: inst.partId,
+        configuration: inst.fullConfiguration || inst.configuration || 'default',
+        documentMicroversion: inst.documentMicroversion,
+        documentVersion: inst.documentVersion,
+        isStandardContent: !!inst.isStandardContent,
+      },
+    })
+  }
+  return out
+}
+
+/** Identifies one part definition, so instances of the same part share a single tessellation request. */
+function partSourceKey(part) {
+  return [part.documentId, part.documentVersion || part.documentMicroversion || '', part.elementId, part.partId, part.configuration || 'default'].join('|')
+}
+
+/**
+ * Applies a 4x4 row-major transform (Onshape's occurrence `transform`, metres) to bodies.
+ * A mirroring transform would turn the triangles inside out, so their winding is flipped back.
+ */
+function transformBodies(bodies, m, namePrefix = '') {
+  const det = m[0] * (m[5] * m[10] - m[6] * m[9]) - m[1] * (m[4] * m[10] - m[6] * m[8]) + m[2] * (m[4] * m[9] - m[5] * m[8])
+  return bodies.map((b) => {
+    const p = b.positions
+    const q = new Float64Array(p.length)
+    for (let i = 0; i < p.length; i += 3) {
+      const x = p[i], y = p[i + 1], z = p[i + 2]
+      q[i] = m[0] * x + m[1] * y + m[2] * z + m[3]
+      q[i + 1] = m[4] * x + m[5] * y + m[6] * z + m[7]
+      q[i + 2] = m[8] * x + m[9] * y + m[10] * z + m[11]
+    }
+    if (det < 0) {
+      for (let i = 0; i < q.length; i += 9) {
+        for (let k = 3; k < 6; k++) { const t = q[i + k]; q[i + k] = q[i + k + 3]; q[i + k + 3] = t }
+      }
+    }
+    return { ...b, name: namePrefix || b.name, positions: q }
+  })
+}
+
+// Browser side: a small panel in an Onshape Part Studio or Assembly tab that lists the parts and downloads each one's
+// tessellation. It calls Onshape's own REST API from the page, so it uses the signed-in session: no API keys, no quota.
 
 const QUALITY = {
   default: { label: 'Onshape default', params: {} },
@@ -141,6 +223,7 @@ const QUALITY = {
 }
 const UNITS = { mm: 1000, m: 1, in: 1 / 0.0254 }
 const ACCEPT = 'application/json;charset=UTF-8; qs=0.09'
+const PARALLEL = 4
 
 async function api(loc, path, params = {}) {
   const q = new URLSearchParams()
@@ -154,22 +237,82 @@ async function api(loc, path, params = {}) {
   return res.json()
 }
 
-const docPath = (loc) => `/d/${loc.did}/${loc.wvm}/${loc.wvmid}/e/${loc.eid}`
+const wvmPath = (loc) => `/d/${loc.did}/${loc.wvm}/${loc.wvmid}`
 
-async function listParts(loc) {
-  const parts = await api(loc, `/parts${docPath(loc)}`, { configuration: loc.configuration, withThumbnails: false })
-  return parts.filter((p) => p.bodyType !== 'composite')
+async function elementInfo(loc) {
+  const els = await api(loc, `/documents${wvmPath(loc)}/elements`, { elementId: loc.eid })
+  const el = (Array.isArray(els) ? els : []).find((e) => e.id === loc.eid) || els[0]
+  if (!el) throw new Error('Could not read this tab’s element')
+  return { type: el.elementType, name: el.name || 'export' }
 }
 
-async function fetchPartTessellation(loc, partId, quality) {
-  return api(loc, `/partstudios${docPath(loc)}/tessellatedfaces`, {
-    partId,
+// An export item is one thing in the list: a part in a Part Studio, or a part occurrence in an assembly.
+// { key, label, hidden, source: {path, params}, transform? , fileBase }
+
+async function partStudioItems(loc) {
+  const parts = await api(loc, `/parts${wvmPath(loc)}/e/${loc.eid}`, { configuration: loc.configuration, withThumbnails: false })
+  return parts
+    .filter((p) => p.bodyType !== 'composite')
+    .map((p) => ({
+      key: p.partId,
+      label: p.name,
+      hidden: !!p.isHidden,
+      fileBase: p.name,
+      source: { path: `/partstudios${wvmPath(loc)}/e/${loc.eid}/tessellatedfaces`, params: { partId: p.partId, configuration: loc.configuration } },
+    }))
+}
+
+async function assemblyItems(loc) {
+  const def = await api(loc, `/assemblies${wvmPath(loc)}/e/${loc.eid}`, {
     configuration: loc.configuration,
-    outputIndexTable: true,
-    outputFacetNormals: false,
-    outputVertexNormals: false,
-    ...QUALITY[quality].params,
+    includeMateFeatures: false,
+    includeMateConnectors: false,
+    includeNonSolids: false,
   })
+  return assemblyPartOccurrences(def).map((o) => {
+    const p = o.part
+    // Parts from this document are read from the tab's own workspace or version. Parts from other documents
+    // (including standard content) are read at the version the assembly links to, through this document.
+    const same = p.documentId === loc.did
+    const where = same ? wvmPath(loc) : p.documentVersion ? `/d/${p.documentId}/v/${p.documentVersion}` : `/d/${p.documentId}/m/${p.documentMicroversion}`
+    const configuration = p.configuration && p.configuration !== 'default' ? p.configuration : ''
+    return {
+      key: o.key,
+      label: o.names.join(' › '),
+      hidden: o.hidden,
+      fileBase: o.names.join(' - '),
+      transform: o.transform,
+      sourceKey: partSourceKey(p),
+      source: {
+        path: `/partstudios${where}/e/${p.elementId}/tessellatedfaces`,
+        params: { partId: p.partId, configuration, ...(same ? {} : { linkDocumentId: loc.did }) },
+      },
+    }
+  })
+}
+
+function tessellationLoader(loc, quality) {
+  const cache = new Map()
+  return (item) => {
+    const k = item.sourceKey || item.key
+    if (!cache.has(k)) {
+      cache.set(k, api(loc, item.source.path, {
+        ...item.source.params,
+        outputIndexTable: true,
+        outputFacetNormals: false,
+        outputVertexNormals: false,
+        ...QUALITY[quality].params,
+      }))
+    }
+    return cache.get(k)
+  }
+}
+
+async function eachLimited(items, n, fn) {
+  let next = 0
+  await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => {
+    while (next < items.length) { const i = next++; await fn(items[i], i) }
+  }))
 }
 
 function download(name, data, type) {
@@ -184,18 +327,48 @@ function download(name, data, type) {
   setTimeout(() => URL.revokeObjectURL(url), 60_000)
 }
 
-async function exportPart(loc, part, opts) {
-  const resp = await fetchPartTessellation(loc, part.partId, opts.quality)
-  const base = safeFileName(part.name)
-  if (opts.format === 'json') {
-    download(`${base}.tessellation.json`, JSON.stringify(resp), 'application/json')
-    return
-  }
+/** Bodies for one item in metres, placed in the assembly when asked. */
+function itemBodies(item, resp, placed) {
   const bodies = bodiesFromResponse(resp).filter((b) => b.positions.length)
-  if (!bodies.length) throw new Error(`${part.name}: Onshape returned no facets`)
+  if (!bodies.length) throw new Error('Onshape returned no facets')
+  return placed && item.transform ? transformBodies(bodies, item.transform, item.label) : bodies.map((b) => ({ ...b, name: item.label }))
+}
+
+function writeMesh(base, bodies, opts) {
   const scale = UNITS[opts.units]
-  if (opts.format === 'obj') download(`${base}.obj`, toOBJ(bodies, scale), 'model/obj')
-  else download(`${base}.stl`, toBinarySTL(bodies, scale, `${part.name} (${opts.units})`), 'model/stl')
+  if (opts.format === 'obj') download(`${safeFileName(base)}.obj`, toOBJ(bodies, scale), 'model/obj')
+  else download(`${safeFileName(base)}.stl`, toBinarySTL(bodies, scale, `${base} (${opts.units})`), 'model/stl')
+}
+
+const rawRecord = (item, resp, placed) => ({ name: item.label, ...(placed && item.transform ? { transform: item.transform } : {}), tessellation: resp })
+
+/** Fetches and saves the chosen items, one file each or all in one. Returns the failures. */
+async function exportItems(loc, ctx, items, opts, progress) {
+  const load = tessellationLoader(loc, opts.quality)
+  const placed = ctx.type === 'ASSEMBLY' && opts.placed
+  const failed = []
+  const collected = []
+  let done = 0
+  await eachLimited(items, PARALLEL, async (item, i) => {
+    try {
+      const resp = await load(item)
+      if (opts.combine) collected[i] = opts.format === 'json' ? rawRecord(item, resp, placed) : itemBodies(item, resp, placed)
+      else if (opts.format === 'json') download(`${safeFileName(item.fileBase)}.tessellation.json`, JSON.stringify(rawRecord(item, resp, placed)), 'application/json')
+      else writeMesh(item.fileBase, itemBodies(item, resp, placed), opts)
+    } catch (e) {
+      failed.push(`${item.label}: ${e.message}`)
+      console.error('[onshape-mesh-export]', item.label, e)
+    }
+    progress(++done, items.length, item.label)
+  })
+  if (opts.combine) {
+    const got = collected.filter(Boolean)
+    if (got.length) {
+      if (opts.format === 'json') download(`${safeFileName(ctx.name)}.tessellation.json`, JSON.stringify(got), 'application/json')
+      else writeMesh(ctx.name, got.flat(), opts)
+    }
+  }
+  return failed
 }
 
 // ---- UI ----
@@ -203,11 +376,14 @@ async function exportPart(loc, part, opts) {
 const CSS = `
 #ome-btn{position:fixed;z-index:2147483646;left:12px;bottom:12px;padding:6px 10px;border:0;border-radius:6px;
   font:600 12px system-ui,sans-serif;color:#fff;background:#2b5fb4;box-shadow:0 2px 8px rgba(0,0,0,.3);cursor:pointer}
-#ome-panel{position:fixed;z-index:2147483647;left:12px;bottom:48px;width:340px;max-height:70vh;display:flex;flex-direction:column;
+#ome-panel{position:fixed;z-index:2147483647;left:12px;bottom:48px;width:380px;max-height:75vh;display:flex;flex-direction:column;
   font:13px/1.4 system-ui,sans-serif;color:#1d2733;background:#fff;border-radius:8px;box-shadow:0 8px 28px rgba(0,0,0,.3)}
-#ome-panel header{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;font-weight:600;border-bottom:1px solid #e3e7ec}
-#ome-panel .opts{display:flex;gap:6px;padding:8px 12px;border-bottom:1px solid #e3e7ec}
+#ome-panel header{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 12px;font-weight:600;border-bottom:1px solid #e3e7ec}
+#ome-panel header .title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#ome-panel .opts{display:flex;flex-wrap:wrap;gap:6px 10px;padding:8px 12px;border-bottom:1px solid #e3e7ec}
+#ome-panel .opts .row{display:flex;gap:6px;width:100%}
 #ome-panel select{font:inherit;flex:1;min-width:0}
+#ome-panel label{display:flex;align-items:center;gap:4px;font-size:12px}
 #ome-panel ul{list-style:none;margin:0;padding:4px 0;overflow:auto}
 #ome-panel li{display:flex;align-items:center;gap:8px;padding:3px 12px}
 #ome-panel li span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -234,8 +410,9 @@ function select(name, choices, value) {
 }
 
 const PREFS_KEY = 'onshape-mesh-export:prefs'
+const DEFAULT_PREFS = { format: 'stl', units: 'mm', quality: 'default', combine: false, placed: true }
 function loadPrefs() {
-  try { return { format: 'stl', units: 'mm', quality: 'default', ...JSON.parse(localStorage.getItem(PREFS_KEY) || '{}') } } catch { return { format: 'stl', units: 'mm', quality: 'default' } }
+  try { return { ...DEFAULT_PREFS, ...JSON.parse(localStorage.getItem(PREFS_KEY) || '{}') } } catch { return { ...DEFAULT_PREFS } }
 }
 function savePrefs(p) { try { localStorage.setItem(PREFS_KEY, JSON.stringify(p)) } catch {} }
 
@@ -248,58 +425,73 @@ async function openPanel() {
   const fmt = select('Format', { stl: 'STL (binary)', obj: 'OBJ', json: 'Raw JSON' }, prefs.format)
   const units = select('Units', { mm: 'mm', m: 'm', in: 'in' }, prefs.units)
   const quality = select('Quality', Object.fromEntries(Object.entries(QUALITY).map(([k, q]) => [k, q.label])), prefs.quality)
-  const opts = () => {
-    const o = { format: fmt.value, units: units.value, quality: quality.value }
-    savePrefs(o)
-    return o
-  }
+  const combine = el('input', { type: 'checkbox', checked: prefs.combine })
+  const placed = el('input', { type: 'checkbox', checked: prefs.placed })
+  const placedLabel = el('label', { title: 'Off: each part in its own Part Studio coordinates' }, placed, 'Keep assembly positions')
+  placedLabel.style.display = 'none'
+  const all = el('input', { type: 'checkbox', title: 'Select all' })
+  const title = el('span', { className: 'title', textContent: 'Export part meshes' })
   const exportBtn = el('button', { textContent: 'Download selected', disabled: true })
   const panel = el('div', { id: 'ome-panel' },
-    el('header', {}, 'Export part meshes', el('button', { textContent: '✕', title: 'Close', on: { click: () => panel.remove() } })),
-    el('div', { className: 'opts' }, fmt, units, quality),
+    el('header', {}, title, el('button', { textContent: '✕', title: 'Close', on: { click: () => panel.remove() } })),
+    el('div', { className: 'opts' },
+      el('div', { className: 'row' }, fmt, units, quality),
+      el('label', {}, combine, 'One file'), placedLabel, el('label', {}, all, 'All')),
     list,
     el('footer', {}, msg, exportBtn),
   )
   document.body.append(panel)
   const say = (text, error = false) => { msg.textContent = text; msg.className = error ? 'msg err' : 'msg' }
-
-  if (!loc) return say('Open a Part Studio tab first.', true)
-  say('Loading parts…')
-  let parts
-  try {
-    parts = await listParts(loc)
-  } catch (e) {
-    return say(/404|400/.test(e.message) ? 'This tab is not a Part Studio.' : e.message, true)
+  const opts = () => {
+    const o = { format: fmt.value, units: units.value, quality: quality.value, combine: combine.checked, placed: placed.checked }
+    savePrefs(o)
+    return o
   }
-  if (!parts.length) return say('No parts in this Part Studio.')
+
+  if (!loc) return say('Open a Part Studio or Assembly tab first.', true)
+  say('Loading…')
+  let ctx, items
+  try {
+    ctx = await elementInfo(loc)
+    if (ctx.type === 'PARTSTUDIO') items = await partStudioItems(loc)
+    else if (ctx.type === 'ASSEMBLY') items = await assemblyItems(loc)
+    else return say('Open a Part Studio or Assembly tab.', true)
+  } catch (e) {
+    return say(e.message, true)
+  }
+  title.textContent = ctx.name
+  title.title = ctx.name
+  if (ctx.type === 'ASSEMBLY') placedLabel.style.display = ''
+  if (!items.length) return say(ctx.type === 'ASSEMBLY' ? 'No parts in this assembly.' : 'No parts in this Part Studio.')
 
   const run = async (chosen) => {
     exportBtn.disabled = true
-    const o = opts()
-    let done = 0
-    const failed = []
-    for (const p of chosen) {
-      say(`Downloading ${++done}/${chosen.length}: ${p.name}`)
-      try { await exportPart(loc, p, o) } catch (e) { failed.push(`${p.name}: ${e.message}`); console.error('[onshape-mesh-export]', e) }
-    }
-    exportBtn.disabled = false
-    if (failed.length) say(`${failed.length} failed. ${failed[0]}`, true)
-    else say(`Downloaded ${chosen.length} part${chosen.length === 1 ? '' : 's'}.`)
+    const failed = await exportItems(loc, ctx, chosen, opts(), (n, total, label) => say(`Fetched ${n}/${total}: ${label}`))
+    sync()
+    if (failed.length) say(`${failed.length} of ${chosen.length} failed. ${failed[0]}`, true)
+    else say(`Downloaded ${chosen.length} part${chosen.length === 1 ? '' : 's'}${opts().combine && chosen.length > 1 ? ' in one file' : ''}.`)
   }
 
-  const boxes = parts.map((p) => {
-    const box = el('input', { type: 'checkbox', checked: !p.isHidden })
-    list.append(el('li', { className: p.isHidden ? 'hidden' : '', title: p.isHidden ? 'Hidden in Onshape' : '' },
-      box, el('span', { textContent: p.name }),
-      el('button', { textContent: '↓', title: `Download ${p.name}`, on: { click: () => run([p]) } }),
+  const boxes = items.map((it) => {
+    const box = el('input', { type: 'checkbox', checked: !it.hidden })
+    list.append(el('li', { className: it.hidden ? 'hidden' : '', title: it.label + (it.hidden ? ' (hidden in Onshape)' : '') },
+      box, el('span', { textContent: it.label }),
+      el('button', { textContent: '↓', title: `Download ${it.label}`, on: { click: () => run([it]) } }),
     ))
     return box
   })
-  const sync = () => { exportBtn.disabled = !boxes.some((b) => b.checked) }
+  const sync = () => {
+    const n = boxes.filter((b) => b.checked).length
+    exportBtn.disabled = n === 0
+    all.checked = n === boxes.length
+    all.indeterminate = n > 0 && n < boxes.length
+  }
   boxes.forEach((b) => b.addEventListener('change', sync))
-  exportBtn.addEventListener('click', () => run(parts.filter((_, i) => boxes[i].checked)))
+  all.addEventListener('change', () => { boxes.forEach((b) => { b.checked = all.checked }); sync() })
+  exportBtn.addEventListener('click', () => run(items.filter((_, i) => boxes[i].checked)))
   sync()
-  say(`${parts.length} part${parts.length === 1 ? '' : 's'}`)
+  const unique = new Set(items.map((i) => i.sourceKey || i.key)).size
+  say(ctx.type === 'ASSEMBLY' ? `${items.length} part instance${items.length === 1 ? '' : 's'} (${unique} distinct)` : `${items.length} part${items.length === 1 ? '' : 's'}`)
 }
 
 function install() {
