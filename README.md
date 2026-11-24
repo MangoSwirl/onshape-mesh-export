@@ -1,8 +1,8 @@
 # Onshape mesh export
 
-A userscript that downloads the tessellated (triangle mesh) geometry Onshape computes for each part in a Part Studio. It saves it as binary STL, OBJ or Onshape's raw JSON.
+A userscript that saves the triangle mesh Onshape's web client received for each part. It works in Part Studios and Assemblies and writes binary STL, OBJ or raw JSON.
 
-It runs inside your signed-in Onshape tab and calls Onshape's own `tessellatedfaces` endpoint with your session. You don't need API keys and it doesn't use any API quota. Each part is requested and saved separately.
+The meshes are the ones the Onshape viewer draws, not a new tessellation from the REST API. The client keeps every display-data message it receives in an IndexedDB cache. The script reads that cache and decodes the messages with the client's own message reader. It doesn't use API keys or API quota.
 
 ## Install
 
@@ -11,37 +11,64 @@ It runs inside your signed-in Onshape tab and calls Onshape's own `tessellatedfa
 
 ## Use
 
-1. Open a Part Studio tab in Onshape.
+1. Open a Part Studio or Assembly tab in Onshape and let the model finish loading.
 2. Click **Export meshes** at the bottom left.
-3. Choose the format, the units and the quality.
-4. Click ↓ next to a part, or tick the parts you want and click **Download selected**. Hidden parts start unticked.
+3. Click ↓ next to a part to download it, or tick parts and click **Download selected**.
 
-| Option | Values |
+| Option | Effect |
 |---|---|
-| Format | STL (binary), OBJ (vertices welded, one `o` group per body), raw JSON (the API response for the part, unchanged) |
-| Units | mm (default), m, in. Onshape sends metres; STL and OBJ are scaled. |
-| Quality | Onshape default, Fine (chord 0.05 mm, 5°), Coarse (chord 1 mm, 15°) |
+| Format | STL (binary); OBJ (vertices welded, one `o` group per part); raw JSON (each face's float32 points, normals and triangle-strip indices as the client holds them, in metres) |
+| Units | mm (default), m or in. Onshape works in metres; STL and OBJ are scaled. |
+| One file | Puts every chosen part in a single file instead of one file each. |
+| Keep assembly positions | Assemblies only. On (default): each part is placed where the assembly shows it. Off: each part stays in its own Part Studio coordinates. |
 
-If the document URL includes a `?configuration=` parameter, the script uses that configuration.
+- **Part Studio:** one row per part, named as in Onshape. Hidden parts start unticked.
+- **Assembly:** one row per part instance at every subassembly depth, named by its instance path (for example `Assembly 2 <1> › Shaft <1>`). Each instance uses the geometry of its own configuration.
+
+## How it works
+
+```mermaid
+flowchart LR
+  WS[Onshape server] -- display data over the websocket --> C[Onshape client]
+  C -- caches --> DB[(IndexedDB CacheDbV*)]
+  DB -- entries, data, tessellations --> S[userscript]
+  C -. its own message reader .-> S
+  S --> F[STL / OBJ / JSON]
+```
+
+- **Part Studio record:** `display.GBTPartStudioDisplayData`. It lists the parts (`partDisplayData`) and the faces that make up each part (`deterministicPartIdToData[partId].entityDIds`).
+- **Per-part tessellation records:** each one holds the face meshes for one part, as `GBTEntityFace {points, normals, indices}`. The points are float32 xyz in metres, and the indices are triangle strips joined by repeated indices. When the client holds a face at more than one tessellation setting, the script uses the finest.
+- **Assembly record:** `assemblydisplay.GBTRootAssemblyDisplayData`. Each occurrence gives its part IDs, the world transform the viewer draws it with, and the Part Studio microversion and configuration its geometry is cached under.
+- **Instance names:** the cache doesn't keep them, so the script reads them with one REST call to the assembly definition. If that call fails, it labels instances by part name.
 
 ## Limits
 
-- The script exports Part Studios only. Assemblies would need each instance's transform applied, and it doesn't do that.
-- Your browser may ask once whether to allow multiple downloads.
-- The mesh comes from the REST API, which uses the same tessellation as Onshape's viewer. The viewer receives its geometry over its own websocket, and the script doesn't read that.
+- **Loaded parts only.** The script only exports parts the viewer has loaded. A part that is hidden, or still loading, may have no triangles yet; the panel names any part it couldn't export.
+- **Onshape internals.** The script relies on the client's internals: the `CacheDbV*` record layout, and a webpack module that contains `readMessage` and `extractStringTable`. It finds the reader by that signature, not by module number, but an Onshape update could still break it.
+- **GPU-buffer mode is untested on B-rep parts.** When Onshape's `USE_DISPLAY_DATA_GPU_BUFFERS` capability is on, parts are cached as GL buffers. The script reads that layout, but it has only been checked on one mesh part (a tetrahedron).
 
 ## Develop
 
 ```sh
 npm run build   # writes dist/onshape-mesh-export.user.js
-npm test        # conversion tests against a trimmed real tessellatedfaces response
+npm test
 ```
 
-- `src/mesh.js` holds the pure conversion code, and the tests run against it.
-- `src/userscript.js` holds the panel and the API calls.
-- The build inlines both into a single file with no dependencies.
+| File | What it does |
+|---|---|
+| `src/client.js` | Turns decoded client display data into triangles. Pure functions. |
+| `src/mesh.js` | Writes STL and OBJ, applies transforms, parses URLs, and builds instance names from the REST definition. |
+| `src/userscript.js` | Finds the client's reader, reads IndexedDB, and runs the panel. |
 
-To let userscript managers update the script automatically, set `DOWNLOAD_URL` to the hosted raw file when you build:
+The tests use data decoded from a live Onshape client. They check:
+
+- volumes against Onshape's mass properties;
+- that box parts come out as closed solids with outward-facing triangles;
+- the configuration keys;
+- the world transforms of nested occurrences;
+- the GL-buffer layout.
+
+To let userscript managers update the script automatically, build with the hosted raw file's address:
 
 ```sh
 DOWNLOAD_URL=https://raw.githubusercontent.com/<owner>/onshape-mesh-export/main/dist/onshape-mesh-export.user.js npm run build

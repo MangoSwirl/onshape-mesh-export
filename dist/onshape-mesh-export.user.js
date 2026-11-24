@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Onshape mesh export
 // @namespace    onshape-mesh-export
-// @version      0.1.0
-// @description  Userscript that downloads Onshape's tessellated geometry for each part as STL, OBJ or raw JSON
+// @version      0.2.0
+// @description  Userscript that saves the mesh the Onshape web client received, per part, from Part Studios and Assemblies as STL, OBJ or raw JSON
 // @match        https://cad.onshape.com/documents/*
 // @match        https://*.onshape.com/documents/*
 // @grant        none
@@ -13,51 +13,8 @@
 (() => {
 'use strict'
 
-// Pure conversion from Onshape's tessellatedfaces response to mesh files.
+// Pure mesh helpers: file writers, transforms, URL parsing, and assembly names from the REST definition.
 // No DOM or network here, so it runs under Node for tests and is inlined into the userscript by the build.
-
-/** Reads a point given as [x, y, z] or as a BTVector3d {x, y, z}. */
-function pointOf(p) {
-  if (Array.isArray(p)) return [p[0], p[1], p[2]]
-  if (p && typeof p === 'object') return [p.x, p.y, p.z]
-  throw new TypeError('Unrecognised point: ' + JSON.stringify(p))
-}
-
-/**
- * Turns a tessellatedfaces response into one triangle soup per body.
- * Handles both shapes Onshape returns: facets with their own `vertices`, and facets with `indices`
- * into a point table (the body's `facetPoints`, or the response's top-level one).
- * Units stay as Onshape sends them (metres).
- */
-function bodiesFromResponse(resp) {
-  const shared = resp.facetPoints || []
-  return (resp.bodies || []).map((body) => {
-    const table = body.facetPoints && body.facetPoints.length ? body.facetPoints : shared
-    const positions = []
-    let faces = 0
-    for (const face of body.faces || []) {
-      faces++
-      for (const facet of face.facets || []) {
-        let tri
-        if (facet.vertices && facet.vertices.length >= 3) tri = facet.vertices.slice(0, 3).map(pointOf)
-        else if (facet.indices && facet.indices.length >= 3) {
-          tri = facet.indices.slice(0, 3).map((i) => {
-            if (i < 0 || i >= table.length) throw new RangeError(`Facet index ${i} outside point table of ${table.length}`)
-            return pointOf(table[i])
-          })
-        } else continue
-        for (const v of tri) positions.push(v[0], v[1], v[2])
-      }
-    }
-    return {
-      id: body.id,
-      name: body.name || body.id,
-      bodyType: body.bodyType,
-      faceCount: faces,
-      positions: new Float64Array(positions),
-    }
-  })
-}
 
 function facetNormal(p, i) {
   const ux = p[i + 3] - p[i], uy = p[i + 4] - p[i + 1], uz = p[i + 5] - p[i + 2]
@@ -103,8 +60,8 @@ function toOBJ(bodies, scale = 1000) {
     for (let i = 0; i < p.length; i += 9) {
       const f = []
       for (let k = 0; k < 3; k++) {
-        const x = p[i + k * 3] * scale, y = p[i + k * 3 + 1] * scale, z = p[i + k * 3 + 2] * scale
-        const key = `${x} ${y} ${z}`
+        // Onshape's points are float32, so 7 significant digits carry all of their precision.
+        const key = [0, 1, 2].map((c) => +(p[i + k * 3 + c] * scale).toPrecision(7)).join(' ')
         let id = index.get(key)
         if (id === undefined) { id = verts.length; index.set(key, id); verts.push(key) }
         f.push(id + base)
@@ -184,11 +141,6 @@ function assemblyPartOccurrences(def) {
   return out
 }
 
-/** Identifies one part definition, so instances of the same part share a single tessellation request. */
-function partSourceKey(part) {
-  return [part.documentId, part.documentVersion || part.documentMicroversion || '', part.elementId, part.partId, part.configuration || 'default'].join('|')
-}
-
 /**
  * Applies a 4x4 row-major transform (Onshape's occurrence `transform`, metres) to bodies.
  * A mirroring transform would turn the triangles inside out, so their winding is flipped back.
@@ -213,106 +165,340 @@ function transformBodies(bodies, m, namePrefix = '') {
   })
 }
 
-// Browser side: a small panel in an Onshape Part Studio or Assembly tab that lists the parts and downloads each one's
-// tessellation. It calls Onshape's own REST API from the page, so it uses the signed-in session: no API keys, no quota.
+// Turns the display data the Onshape web client received (decoded by the client's own reader, then made plain by
+// `plainMessage`) into triangles. Pure: no DOM, IndexedDB or network, so it runs under Node for tests.
+//
+// What the client keeps, per Part Studio element, microversion and configuration:
+//   display.GBTPartStudioDisplayData
+//     partDisplayData[]            {id, name, hidden, appearance}        one per part
+//     deterministicPartIdToData    {partId: GBTPartData{entityDIds[]}}   which entities make up each part
+//     deterministicIdToEntity      {entityId: GBTBodyEntity{geometries[]}}
+//       GBTEntityFace              {points: Float32Array xyz (metres), normals, indices: triangle strip, settingIndex}
+//     partIdAndTessellationSettingToBuffers {partId: {setting: GL buffers}}  (when Onshape's GPU-buffer mode is on)
+// and per assembly:
+//   assemblydisplay.GBTRootAssemblyDisplayData
+//     occurrences[] {occurrenceData{occurrence{path}, transform GBTBSMatrix (world), isHidden}, partIds[], fullElementId}
 
-const QUALITY = {
-  default: { label: 'Onshape default', params: {} },
-  fine: { label: 'Fine', params: { chordTolerance: 0.00005, angleTolerance: 5 } },
-  coarse: { label: 'Coarse', params: { chordTolerance: 0.001, angleTolerance: 15 } },
-}
-const UNITS = { mm: 1000, m: 1, in: 1 / 0.0254 }
-const ACCEPT = 'application/json;charset=UTF-8; qs=0.09'
-const PARALLEL = 4
-
-async function api(loc, path, params = {}) {
-  const q = new URLSearchParams()
-  for (const [k, v] of Object.entries(params)) if (v !== '' && v !== undefined && v !== null) q.set(k, String(v))
-  const url = `${loc.origin}/api/v6${path}${q.size ? '?' + q : ''}`
-  const res = await fetch(url, { credentials: 'include', headers: { Accept: ACCEPT } })
-  if (!res.ok) {
-    const body = await res.text().catch(() => '')
-    throw new Error(`${res.status} ${res.statusText} from ${path}${body ? ': ' + body.slice(0, 200) : ''}`)
+/** Converts a decoded Onshape message into plain objects: `$type` names the class; typed arrays are kept. */
+function plainMessage(v) {
+  if (v === null || typeof v !== 'object') return v
+  if (ArrayBuffer.isView(v)) return v
+  if (Array.isArray(v)) return v.map(plainMessage)
+  const o = {}
+  if (typeof v.getMessageName === 'function') o.$type = v.getMessageName()
+  if (typeof v.getConfigurationString === 'function') o.$configurationString = v.getConfigurationString()
+  for (const [k, x] of Object.entries(v)) {
+    if (k === '_serializedByteLength' || k === 'deserializeDurationInMillis_') continue
+    o[k] = plainMessage(x)
   }
-  return res.json()
+  return o
 }
 
-const wvmPath = (loc) => `/d/${loc.did}/${loc.wvm}/${loc.wvmid}`
-
-async function elementInfo(loc) {
-  const els = await api(loc, `/documents${wvmPath(loc)}/elements`, { elementId: loc.eid })
-  const el = (Array.isArray(els) ? els : []).find((e) => e.id === loc.eid) || els[0]
-  if (!el) throw new Error('Could not read this tab’s element')
-  return { type: el.elementType, name: el.name || 'export' }
-}
-
-// An export item is one thing in the list: a part in a Part Studio, or a part occurrence in an assembly.
-// { key, label, hidden, source: {path, params}, transform? , fileBase }
-
-async function partStudioItems(loc) {
-  const parts = await api(loc, `/parts${wvmPath(loc)}/e/${loc.eid}`, { configuration: loc.configuration, withThumbnails: false })
-  return parts
-    .filter((p) => p.bodyType !== 'composite')
-    .map((p) => ({
-      key: p.partId,
-      label: p.name,
-      hidden: !!p.isHidden,
-      fileBase: p.name,
-      source: { path: `/partstudios${wvmPath(loc)}/e/${loc.eid}/tessellatedfaces`, params: { partId: p.partId, configuration: loc.configuration } },
-    }))
-}
-
-async function assemblyItems(loc) {
-  const def = await api(loc, `/assemblies${wvmPath(loc)}/e/${loc.eid}`, {
-    configuration: loc.configuration,
-    includeMateFeatures: false,
-    includeMateConnectors: false,
-    includeNonSolids: false,
-  })
-  return assemblyPartOccurrences(def).map((o) => {
-    const p = o.part
-    // Parts from this document are read from the tab's own workspace or version. Parts from other documents
-    // (including standard content) are read at the version the assembly links to, through this document.
-    const same = p.documentId === loc.did
-    const where = same ? wvmPath(loc) : p.documentVersion ? `/d/${p.documentId}/v/${p.documentVersion}` : `/d/${p.documentId}/m/${p.documentMicroversion}`
-    const configuration = p.configuration && p.configuration !== 'default' ? p.configuration : ''
-    return {
-      key: o.key,
-      label: o.names.join(' › '),
-      hidden: o.hidden,
-      fileBase: o.names.join(' - '),
-      transform: o.transform,
-      sourceKey: partSourceKey(p),
-      source: {
-        path: `/partstudios${where}/e/${p.elementId}/tessellatedfaces`,
-        params: { partId: p.partId, configuration, ...(same ? {} : { linkDocumentId: loc.did }) },
-      },
-    }
-  })
-}
-
-function tessellationLoader(loc, quality) {
-  const cache = new Map()
-  return (item) => {
-    const k = item.sourceKey || item.key
-    if (!cache.has(k)) {
-      cache.set(k, api(loc, item.source.path, {
-        ...item.source.params,
-        outputIndexTable: true,
-        outputFacetNormals: false,
-        outputVertexNormals: false,
-        ...QUALITY[quality].params,
-      }))
-    }
-    return cache.get(k)
+/**
+ * Appends the triangles of a triangle strip to `out` (flat xyz).
+ * Onshape joins strips with repeated indices; triangles with a repeated vertex are dropped, and winding alternates
+ * with the position in the whole index list, as GL_TRIANGLE_STRIP does.
+ */
+function stripTriangles(points, indices, out) {
+  for (let i = 0; i + 2 < indices.length; i++) {
+    let a = indices[i], b = indices[i + 1]
+    const c = indices[i + 2]
+    if (a === b || b === c || a === c) continue
+    if (i & 1) { const t = a; a = b; b = t }
+    out.push(points[3 * a], points[3 * a + 1], points[3 * a + 2], points[3 * b], points[3 * b + 1], points[3 * b + 2], points[3 * c], points[3 * c + 1], points[3 * c + 2])
   }
+  return out
 }
 
-async function eachLimited(items, n, fn) {
-  let next = 0
-  await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => {
-    while (next < items.length) { const i = next++; await fn(items[i], i) }
+function trianglesList(indices, out, points) {
+  for (let i = 0; i + 2 < indices.length; i += 3) {
+    for (const k of [indices[i], indices[i + 1], indices[i + 2]]) out.push(points[3 * k], points[3 * k + 1], points[3 * k + 2])
+  }
+  return out
+}
+
+const GL_FLOAT = 5126
+const GL_TRIANGLES = 4
+const GL_TRIANGLE_STRIP = 5
+const ARRAY_FOR = { 5120: Int8Array, 5121: Uint8Array, 5122: Int16Array, 5123: Uint16Array, 5125: Uint32Array, 5126: Float32Array }
+
+function accessorArray(gl, index) {
+  const acc = gl.bufferAccessors[index]
+  const buf = gl.buffers[acc.bufferIndex].data
+  const T = ARRAY_FOR[acc.glDataType]
+  if (!T) throw new Error(`Unsupported GL data type ${acc.glDataType}`)
+  const bytes = buf.byteOffset % T.BYTES_PER_ELEMENT ? buf.slice() : buf
+  return new T(bytes.buffer, bytes.byteOffset, Math.floor(bytes.byteLength / T.BYTES_PER_ELEMENT))
+}
+
+function applyMatrix12(p, m) {
+  const out = new Array(p.length)
+  for (let i = 0; i < p.length; i += 3) {
+    const x = p[i], y = p[i + 1], z = p[i + 2]
+    out[i] = m[0] * x + m[1] * y + m[2] * z + m[3]
+    out[i + 1] = m[4] * x + m[5] * y + m[6] * z + m[7]
+    out[i + 2] = m[8] * x + m[9] * y + m[10] * z + m[11]
+  }
+  return out
+}
+
+/** Triangles from a GBTGLDisplayData-shaped object (glTF-like buffers, accessors and nodes of drawables). */
+function glTriangles(gl, out = []) {
+  for (const node of gl.nodes || []) {
+    const m = node.transform && node.transform[0] ? matrixToArray(node.transform[0]) : null
+    for (const d of node.drawables || []) {
+      if (d.primitiveType !== GL_TRIANGLES && d.primitiveType !== GL_TRIANGLE_STRIP) continue
+      if (gl.bufferAccessors[d.attributes.point].glDataType !== GL_FLOAT) throw new Error('GL positions are not float32')
+      let points = accessorArray(gl, d.attributes.point)
+      if (m && !isIdentity(m)) points = applyMatrix12(points, m)
+      const indices = accessorArray(gl, d.indices)
+      if (d.primitiveType === GL_TRIANGLE_STRIP) stripTriangles(points, indices, out)
+      else trianglesList(indices, out, points)
+    }
+  }
+  return out
+}
+
+/** GBTBSMatrix {m00..m23} (rows of a 3x4 affine matrix) as a 16-number row-major 4x4. */
+function matrixToArray(t) {
+  return [t.m00, t.m01, t.m02, t.m03, t.m10, t.m11, t.m12, t.m13, t.m20, t.m21, t.m22, t.m23, 0, 0, 0, 1]
+}
+
+function isIdentity(m) {
+  return m[0] === 1 && m[5] === 1 && m[10] === 1 && !m[1] && !m[2] && !m[3] && !m[4] && !m[6] && !m[7] && !m[8] && !m[9] && !m[11]
+}
+
+/** Parts of a Part Studio, from its display data: [{id, name, hidden, color}]. */
+function studioParts(psdd) {
+  return (psdd.partDisplayData || []).map((p) => ({
+    id: p.id,
+    name: p.name || p.id,
+    hidden: !!p.hidden,
+    color: p.appearance && p.appearance.color && p.appearance.color.length >= 3 ? [...p.appearance.color].slice(0, 3) : null,
   }))
+}
+
+/**
+ * The triangles of one part (flat xyz, metres), gathered from any number of display-data messages for the same Part
+ * Studio microversion and configuration: the element's own record and the per-part tessellation records.
+ * Where the client holds a face at several tessellation settings, the finest one is used.
+ * Returns null when none of the messages hold geometry for the part.
+ */
+function partTriangles(partId, messages) {
+  let entityIds = null
+  const faces = new Map()
+  let gl = null
+  for (const m of messages) {
+    const pd = m.deterministicPartIdToData && m.deterministicPartIdToData[partId]
+    if (pd && pd.entityDIds && pd.entityDIds.length) entityIds = pd.entityDIds
+    for (const [id, ent] of Object.entries(m.deterministicIdToEntity || {})) {
+      for (const g of ent.geometries || []) {
+        if (g.$type !== 'display.GBTEntityFace' || !g.indices || !g.indices.length || !g.points || !g.points.length) continue
+        const prev = faces.get(id)
+        if (!prev || (g.settingIndex || 0) > (prev.settingIndex || 0)) faces.set(id, g)
+      }
+    }
+    const bufs = m.partIdAndTessellationSettingToBuffers && m.partIdAndTessellationSettingToBuffers[partId]
+    if (bufs) {
+      const best = Object.keys(bufs).map(Number).sort((a, b) => b - a).find((s) => bufs[s])
+      if (best !== undefined) gl = bufs[best]
+    }
+  }
+  const out = []
+  if (entityIds) for (const id of entityIds) { const f = faces.get(id); if (f) stripTriangles(f.points, f.indices, out) }
+  if (!out.length && gl) {
+    if (!gl.buffers || !gl.nodes) throw new Error(`Part ${partId} uses a GPU-buffer format this script doesn't read (${gl.$type || 'unknown'})`)
+    glTriangles(gl, out)
+  }
+  return out.length ? new Float64Array(out) : null
+}
+
+/** The faces of one part as the client holds them, for raw export. */
+function partFaces(partId, messages) {
+  let entityIds = []
+  const ents = {}
+  for (const m of messages) {
+    const pd = m.deterministicPartIdToData && m.deterministicPartIdToData[partId]
+    if (pd && pd.entityDIds && pd.entityDIds.length) entityIds = pd.entityDIds
+    Object.assign(ents, m.deterministicIdToEntity || {})
+  }
+  const faces = []
+  for (const id of entityIds) {
+    for (const g of (ents[id] && ents[id].geometries) || []) {
+      if (g.$type !== 'display.GBTEntityFace') continue
+      faces.push({ id, settingIndex: g.settingIndex, points: Array.from(g.points), normals: Array.from(g.normals || []), indices: Array.from(g.indices), primitive: 'TRIANGLE_STRIP' })
+    }
+  }
+  return faces
+}
+
+/**
+ * Part occurrences of an assembly, from its root display data. One item per (occurrence, part), with the world
+ * transform the viewer draws it with and the Part Studio record that holds its tessellation.
+ */
+function assemblyItems(root) {
+  const items = []
+  for (const occ of root.occurrences || []) {
+    const od = occ.occurrenceData || {}
+    const path = (od.occurrence && od.occurrence.path) || []
+    const fe = occ.fullElementId || {}
+    const mvc = fe.microversionIdAndConfiguration || {}
+    const source = {
+      documentId: fe.documentId || '',
+      elementId: fe.elementId || occ.elementId,
+      microversionId: (mvc.microversion && mvc.microversion.theId) || (fe.microversionId && fe.microversionId.theId) || '',
+      configuration: mvc.$configurationString || '',
+    }
+    for (const partId of occ.partIds || []) {
+      items.push({
+        key: path.join('/') + (occ.partIds.length > 1 ? '#' + partId : ''),
+        path,
+        partId,
+        hidden: !!(occ.isHidden || od.isHidden),
+        transform: matrixToArray(od.transform),
+        source,
+      })
+    }
+  }
+  return items
+}
+
+/** Key for one Part Studio record in the client's cache. */
+const sourceKey = (s) => [s.elementId, s.microversionId, s.configuration].join('|')
+
+// Browser side. Exports the tessellation the Onshape web client received for the open Part Studio or Assembly.
+//
+// The client stores every display-data message it receives in IndexedDB (CacheDbV*: `entries`, `data` and per-part
+// `tessellations`) in Onshape's binary serialization. This script reads those records and decodes them with the
+// client's own reader (found in its webpack bundle), so the triangles are exactly the ones the viewer draws.
+// The only network call is an optional REST read of the assembly definition, for instance names.
+
+const UNITS = { mm: 1000, m: 1, in: 1 / 0.0254 }
+const DISPLAY_TYPES = ['DISPLAY_DATA', 'PARTBUFFER_DISPLAY_DATA']
+
+// ---- Onshape client internals ----
+
+let readerFn = null
+/** Onshape's own binary message reader, wrapped to return plain objects. */
+function clientReader() {
+  if (readerFn) return readerFn
+  const chunks = window.webpackChunkNewton
+  if (!chunks || typeof chunks.push !== 'function') throw new Error('This page is not the Onshape editor.')
+  let req = null
+  chunks.push([[Symbol('onshape-mesh-export')], {}, (r) => { req = r }])
+  if (!req || !req.m) throw new Error('Could not reach the Onshape client’s modules.')
+  for (const id of Object.keys(req.m)) {
+    const src = Function.prototype.toString.call(req.m[id])
+    if (!src.includes('extractStringTable') || !src.includes('readMessage')) continue
+    for (const v of Object.values(req(id))) {
+      if (typeof v === 'function' && v.prototype && typeof v.prototype.readMessage === 'function' && typeof v.prototype.extractStringTable === 'function') {
+        readerFn = (bytes) => plainMessage(new v(bytes).readMessage())
+        return readerFn
+      }
+    }
+  }
+  throw new Error('Could not find Onshape’s message reader. The Onshape client may have changed.')
+}
+
+// ---- The client's display-data cache ----
+
+async function openCache() {
+  const dbs = indexedDB.databases ? await indexedDB.databases() : []
+  const names = dbs.map((d) => d.name).filter((n) => /^CacheDbV\d+$/.test(n)).sort((a, b) => +b.slice(8) - +a.slice(8))
+  // Only open a database the client already made: opening a missing one would create it.
+  if (!names.length) throw new Error('Onshape’s graphics cache is empty. Let the model finish loading, then try again.')
+  return new Promise((resolve, reject) => {
+    const r = indexedDB.open(names[0])
+    r.onsuccess = () => resolve(r.result)
+    r.onerror = () => reject(r.error)
+    r.onblocked = () => reject(new Error('Onshape’s graphics cache is busy. Try again.'))
+  })
+}
+
+function idb(db, store, method, arg) {
+  return new Promise((resolve, reject) => {
+    const q = db.transaction(store, 'readonly').objectStore(store)[method](arg)
+    q.onsuccess = () => resolve(q.result)
+    q.onerror = () => reject(q.error)
+  })
+}
+const prefix = (key) => IDBKeyRange.bound(key, [...key, []])
+
+/** The record the viewer used most recently for an element (its current microversion and configuration). */
+async function latestEntry(db, elementId) {
+  const rows = (await idb(db, 'entries', 'getAll', prefix([elementId]))).filter((e) => DISPLAY_TYPES.includes(e.dataType))
+  rows.sort((a, b) => (b.lastUsed?.getTime?.() || 0) - (a.lastUsed?.getTime?.() || 0))
+  return rows[0] || null
+}
+
+/** Display-data records for one Part Studio microversion and configuration: the element's own, then per-part. */
+async function studioRecords(db, read, s) {
+  for (const type of DISPLAY_TYPES) {
+    const key = [s.elementId, s.microversionId, s.configuration, type]
+    const data = await idb(db, 'data', 'get', key)
+    const tess = await idb(db, 'tessellations', 'getAll', prefix(key))
+    if (!data && !tess.length) continue
+    return { main: data ? read(data.messageData) : null, parts: tess.map((t) => read(t.tessellationData)) }
+  }
+  return null
+}
+
+// ---- Items: one per part (Part Studio) or per part occurrence (Assembly) ----
+
+async function assemblyNames(loc) {
+  try {
+    const res = await fetch(`${loc.origin}/api/v6/assemblies/d/${loc.did}/${loc.wvm}/${loc.wvmid}/e/${loc.eid}`, { credentials: 'include', headers: { Accept: 'application/json' } })
+    if (!res.ok) return new Map()
+    return new Map(assemblyPartOccurrences(await res.json()).map((o) => [o.key, o.names]))
+  } catch {
+    return new Map()
+  }
+}
+
+async function loadContext() {
+  const loc = parseOnshapeUrl(location.href)
+  if (!loc) throw new Error('Open a Part Studio or Assembly tab first.')
+  const read = clientReader()
+  const db = await openCache()
+  const entry = await latestEntry(db, loc.eid)
+  if (!entry) throw new Error('Onshape hasn’t cached this tab’s graphics yet. Let it finish loading, then try again.')
+  const root = read((await idb(db, 'data', 'get', [entry.elementId, entry.microversionId, entry.configurationId, entry.dataType])).messageData)
+  const name = (document.title.split(' | ').pop() || 'export').trim()
+  const studios = new Map()
+  const studio = (s) => {
+    const k = sourceKey(s)
+    if (!studios.has(k)) studios.set(k, studioRecords(db, read, s))
+    return studios.get(k)
+  }
+
+  if (root.$type === 'assemblydisplay.GBTRootAssemblyDisplayData') {
+    const names = await assemblyNames(loc)
+    const items = assemblyItems(root)
+    for (const it of items) {
+      const rec = await studio(it.source)
+      const part = rec?.main && studioParts(rec.main).find((p) => p.id === it.partId)
+      const fromRest = names.get(it.path.join('/'))
+      it.label = fromRest ? fromRest.join(' › ') : `${part?.name || it.partId} (${it.path.length > 1 ? 'nested ' : ''}instance ${it.path[it.path.length - 1].slice(0, 6)})`
+      it.fileBase = fromRest ? fromRest.join(' - ') : it.label
+    }
+    return { type: 'ASSEMBLY', name, items, studio }
+  }
+  if (root.$type === 'display.GBTPartStudioDisplayData') {
+    const source = { elementId: entry.elementId, microversionId: entry.microversionId, configuration: entry.configurationId }
+    const items = studioParts(root).map((p) => ({ key: p.id, partId: p.id, label: p.name, fileBase: p.name, hidden: p.hidden, source }))
+    return { type: 'PARTSTUDIO', name, items, studio }
+  }
+  throw new Error(`This tab’s graphics are a ${root.$type}, not a Part Studio or Assembly.`)
+}
+
+// ---- Export ----
+
+async function itemGeometry(ctx, item) {
+  const rec = await ctx.studio(item.source)
+  const messages = rec ? [rec.main, ...rec.parts].filter(Boolean) : []
+  const tris = messages.length ? partTriangles(item.partId, messages) : null
+  if (!tris) throw new Error('the viewer hasn’t loaded this part’s triangles (is it hidden or still loading?)')
+  return { tris, messages }
 }
 
 function download(name, data, type) {
@@ -327,46 +513,42 @@ function download(name, data, type) {
   setTimeout(() => URL.revokeObjectURL(url), 60_000)
 }
 
-/** Bodies for one item in metres, placed in the assembly when asked. */
-function itemBodies(item, resp, placed) {
-  const bodies = bodiesFromResponse(resp).filter((b) => b.positions.length)
-  if (!bodies.length) throw new Error('Onshape returned no facets')
-  return placed && item.transform ? transformBodies(bodies, item.transform, item.label) : bodies.map((b) => ({ ...b, name: item.label }))
-}
-
 function writeMesh(base, bodies, opts) {
   const scale = UNITS[opts.units]
   if (opts.format === 'obj') download(`${safeFileName(base)}.obj`, toOBJ(bodies, scale), 'model/obj')
   else download(`${safeFileName(base)}.stl`, toBinarySTL(bodies, scale, `${base} (${opts.units})`), 'model/stl')
 }
 
-const rawRecord = (item, resp, placed) => ({ name: item.label, ...(placed && item.transform ? { transform: item.transform } : {}), tessellation: resp })
-
 /** Fetches and saves the chosen items, one file each or all in one. Returns the failures. */
-async function exportItems(loc, ctx, items, opts, progress) {
-  const load = tessellationLoader(loc, opts.quality)
+async function exportItems(ctx, items, opts, progress) {
   const placed = ctx.type === 'ASSEMBLY' && opts.placed
   const failed = []
   const collected = []
-  let done = 0
-  await eachLimited(items, PARALLEL, async (item, i) => {
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i]
+    progress(i + 1, items.length, item.label)
     try {
-      const resp = await load(item)
-      if (opts.combine) collected[i] = opts.format === 'json' ? rawRecord(item, resp, placed) : itemBodies(item, resp, placed)
-      else if (opts.format === 'json') download(`${safeFileName(item.fileBase)}.tessellation.json`, JSON.stringify(rawRecord(item, resp, placed)), 'application/json')
-      else writeMesh(item.fileBase, itemBodies(item, resp, placed), opts)
+      const { tris, messages } = await itemGeometry(ctx, item)
+      const useT = placed && item.transform
+      if (opts.format === 'json') {
+        const rec = { name: item.label, partId: item.partId, units: 'm', ...(useT ? { transform: item.transform } : {}), source: item.source, faces: partFaces(item.partId, messages) }
+        if (opts.combine) collected.push(rec)
+        else download(`${safeFileName(item.fileBase)}.tessellation.json`, JSON.stringify(rec), 'application/json')
+        continue
+      }
+      let bodies = [{ name: item.label, positions: tris }]
+      if (useT) bodies = transformBodies(bodies, item.transform, item.label)
+      if (opts.combine) collected.push(...bodies)
+      else writeMesh(item.fileBase, bodies, opts)
     } catch (e) {
       failed.push(`${item.label}: ${e.message}`)
       console.error('[onshape-mesh-export]', item.label, e)
     }
-    progress(++done, items.length, item.label)
-  })
-  if (opts.combine) {
-    const got = collected.filter(Boolean)
-    if (got.length) {
-      if (opts.format === 'json') download(`${safeFileName(ctx.name)}.tessellation.json`, JSON.stringify(got), 'application/json')
-      else writeMesh(ctx.name, got.flat(), opts)
-    }
+    await new Promise((r) => setTimeout(r, 0))
+  }
+  if (opts.combine && collected.length) {
+    if (opts.format === 'json') download(`${safeFileName(ctx.name)}.tessellation.json`, JSON.stringify(collected), 'application/json')
+    else writeMesh(ctx.name, collected, opts)
   }
   return failed
 }
@@ -410,7 +592,7 @@ function select(name, choices, value) {
 }
 
 const PREFS_KEY = 'onshape-mesh-export:prefs'
-const DEFAULT_PREFS = { format: 'stl', units: 'mm', quality: 'default', combine: false, placed: true }
+const DEFAULT_PREFS = { format: 'stl', units: 'mm', combine: false, placed: true }
 function loadPrefs() {
   try { return { ...DEFAULT_PREFS, ...JSON.parse(localStorage.getItem(PREFS_KEY) || '{}') } } catch { return { ...DEFAULT_PREFS } }
 }
@@ -418,13 +600,11 @@ function savePrefs(p) { try { localStorage.setItem(PREFS_KEY, JSON.stringify(p))
 
 async function openPanel() {
   document.getElementById('ome-panel')?.remove()
-  const loc = parseOnshapeUrl(location.href)
   const msg = el('div', { className: 'msg' })
   const list = el('ul')
   const prefs = loadPrefs()
   const fmt = select('Format', { stl: 'STL (binary)', obj: 'OBJ', json: 'Raw JSON' }, prefs.format)
   const units = select('Units', { mm: 'mm', m: 'm', in: 'in' }, prefs.units)
-  const quality = select('Quality', Object.fromEntries(Object.entries(QUALITY).map(([k, q]) => [k, q.label])), prefs.quality)
   const combine = el('input', { type: 'checkbox', checked: prefs.combine })
   const placed = el('input', { type: 'checkbox', checked: prefs.placed })
   const placedLabel = el('label', { title: 'Off: each part in its own Part Studio coordinates' }, placed, 'Keep assembly positions')
@@ -435,7 +615,7 @@ async function openPanel() {
   const panel = el('div', { id: 'ome-panel' },
     el('header', {}, title, el('button', { textContent: '✕', title: 'Close', on: { click: () => panel.remove() } })),
     el('div', { className: 'opts' },
-      el('div', { className: 'row' }, fmt, units, quality),
+      el('div', { className: 'row' }, fmt, units),
       el('label', {}, combine, 'One file'), placedLabel, el('label', {}, all, 'All')),
     list,
     el('footer', {}, msg, exportBtn),
@@ -443,33 +623,32 @@ async function openPanel() {
   document.body.append(panel)
   const say = (text, error = false) => { msg.textContent = text; msg.className = error ? 'msg err' : 'msg' }
   const opts = () => {
-    const o = { format: fmt.value, units: units.value, quality: quality.value, combine: combine.checked, placed: placed.checked }
+    const o = { format: fmt.value, units: units.value, combine: combine.checked, placed: placed.checked }
     savePrefs(o)
     return o
   }
 
-  if (!loc) return say('Open a Part Studio or Assembly tab first.', true)
-  say('Loading…')
-  let ctx, items
+  say('Reading the viewer’s geometry…')
+  let ctx
   try {
-    ctx = await elementInfo(loc)
-    if (ctx.type === 'PARTSTUDIO') items = await partStudioItems(loc)
-    else if (ctx.type === 'ASSEMBLY') items = await assemblyItems(loc)
-    else return say('Open a Part Studio or Assembly tab.', true)
+    ctx = await loadContext()
   } catch (e) {
+    console.error('[onshape-mesh-export]', e)
     return say(e.message, true)
   }
   title.textContent = ctx.name
   title.title = ctx.name
   if (ctx.type === 'ASSEMBLY') placedLabel.style.display = ''
-  if (!items.length) return say(ctx.type === 'ASSEMBLY' ? 'No parts in this assembly.' : 'No parts in this Part Studio.')
+  const items = ctx.items
+  if (!items.length) return say('No parts here.')
 
   const run = async (chosen) => {
     exportBtn.disabled = true
-    const failed = await exportItems(loc, ctx, chosen, opts(), (n, total, label) => say(`Fetched ${n}/${total}: ${label}`))
+    const o = opts()
+    const failed = await exportItems(ctx, chosen, o, (n, total, label) => say(`${n}/${total}: ${label}`))
     sync()
     if (failed.length) say(`${failed.length} of ${chosen.length} failed. ${failed[0]}`, true)
-    else say(`Downloaded ${chosen.length} part${chosen.length === 1 ? '' : 's'}${opts().combine && chosen.length > 1 ? ' in one file' : ''}.`)
+    else say(`Downloaded ${chosen.length} part${chosen.length === 1 ? '' : 's'}${o.combine && chosen.length > 1 ? ' in one file' : ''}.`)
   }
 
   const boxes = items.map((it) => {
@@ -490,14 +669,13 @@ async function openPanel() {
   all.addEventListener('change', () => { boxes.forEach((b) => { b.checked = all.checked }); sync() })
   exportBtn.addEventListener('click', () => run(items.filter((_, i) => boxes[i].checked)))
   sync()
-  const unique = new Set(items.map((i) => i.sourceKey || i.key)).size
-  say(ctx.type === 'ASSEMBLY' ? `${items.length} part instance${items.length === 1 ? '' : 's'} (${unique} distinct)` : `${items.length} part${items.length === 1 ? '' : 's'}`)
+  say(ctx.type === 'ASSEMBLY' ? `${items.length} part instance${items.length === 1 ? '' : 's'}` : `${items.length} part${items.length === 1 ? '' : 's'}`)
 }
 
 function install() {
   if (document.getElementById('ome-btn')) return
   document.head.append(el('style', { textContent: CSS }))
-  document.body.append(el('button', { id: 'ome-btn', textContent: 'Export meshes', title: 'Download part tessellations', on: { click: openPanel } }))
+  document.body.append(el('button', { id: 'ome-btn', textContent: 'Export meshes', title: 'Download the tessellation the viewer received, per part', on: { click: openPanel } }))
 }
 
 if (document.body) install()

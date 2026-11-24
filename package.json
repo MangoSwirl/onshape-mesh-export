@@ -1,7 +1,7 @@
 {
   "name": "onshape-mesh-export",
-  "version": "0.1.0",
-  "description": "Userscript that downloads Onshape's tessellated geometry for each part as STL, OBJ or raw JSON",
+  "version": "0.2.0",
+  "description": "Userscript that saves the mesh the Onshape web client received, per part, from Part Studios and Assemblies as STL, OBJ or raw JSON",
   "type": "module",
   "license": "MIT",
   "scripts": {

@@ -1,10 +1,10 @@
-// Inlines src/mesh.js into src/userscript.js behind the userscript metadata block.
+// Inlines src/mesh.js and src/client.js into src/userscript.js behind the userscript metadata block.
 // Set DOWNLOAD_URL to the raw URL of dist/onshape-mesh-export.user.js once it is hosted, so managers can auto-update.
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 
 const root = new URL('..', import.meta.url)
 const pkg = JSON.parse(readFileSync(new URL('package.json', root), 'utf8'))
-const mesh = readFileSync(new URL('src/mesh.js', root), 'utf8').replace(/^export /gm, '')
+const lib = ['src/mesh.js', 'src/client.js'].map((f) => readFileSync(new URL(f, root), 'utf8').replace(/^export /gm, '')).join('\n')
 const ui = readFileSync(new URL('src/userscript.js', root), 'utf8')
 const dl = process.env.DOWNLOAD_URL
 
@@ -23,7 +23,7 @@ const meta = [
   '// ==/UserScript==',
 ].join('\n')
 
-const out = `${meta}\n\n(() => {\n'use strict'\n\n${mesh}\n${ui}\n})()\n`
+const out = `${meta}\n\n(() => {\n'use strict'\n\n${lib}\n${ui}\n})()\n`
 mkdirSync(new URL('dist/', root), { recursive: true })
 writeFileSync(new URL('dist/onshape-mesh-export.user.js', root), out)
 console.log(`dist/onshape-mesh-export.user.js ${out.length} bytes, v${pkg.version}`)
