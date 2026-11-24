@@ -8,6 +8,8 @@
 // @grant        none
 // @run-at       document-idle
 // @license      MIT
+// @downloadURL  https://raw.githubusercontent.com/MangoSwirl/onshape-mesh-export/main/dist/onshape-mesh-export.user.js
+// @updateURL    https://raw.githubusercontent.com/MangoSwirl/onshape-mesh-export/main/dist/onshape-mesh-export.user.js
 // ==/UserScript==
 
 (() => {

@@ -7,7 +7,7 @@ The meshes are the ones the Onshape viewer draws, not a new tessellation from th
 ## Install
 
 1. Install a userscript manager: [Violentmonkey](https://violentmonkey.github.io/) or Tampermonkey.
-2. Open [`dist/onshape-mesh-export.user.js`](dist/onshape-mesh-export.user.js) (the raw file) and accept the install prompt.
+2. Open the [raw userscript](https://raw.githubusercontent.com/MangoSwirl/onshape-mesh-export/main/dist/onshape-mesh-export.user.js) and accept the install prompt. Your userscript manager will then keep it up to date.
 
 ## Use
 
@@ -68,10 +68,6 @@ The tests use data decoded from a live Onshape client. They check:
 - the world transforms of nested occurrences;
 - the GL-buffer layout.
 
-To let userscript managers update the script automatically, build with the hosted raw file's address:
+The build sets `@downloadURL` and `@updateURL` to the raw file on `main`. Set `DOWNLOAD_URL` to point at another copy.
 
-```sh
-DOWNLOAD_URL=https://raw.githubusercontent.com/<owner>/onshape-mesh-export/main/dist/onshape-mesh-export.user.js npm run build
-```
-
-To release, bump `version` in `package.json`, then rebuild.
+To release, bump `version` in `package.json` and rebuild. Then commit `dist/`. Userscript managers pick up the new version from `main`.

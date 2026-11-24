@@ -5,9 +5,15 @@
   "type": "module",
   "license": "MIT",
   "scripts": {
-    "build": "node scripts/build.mjs",
+    "build": "DOWNLOAD_URL=${DOWNLOAD_URL:-https://raw.githubusercontent.com/MangoSwirl/onshape-mesh-export/main/dist/onshape-mesh-export.user.js} node scripts/build.mjs",
     "test": "node --test test/*.test.js",
     "check": "npm run build && npm test"
   },
-  "engines": { "node": ">=20" }
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/MangoSwirl/onshape-mesh-export"
+  }
 }
